@@ -1,0 +1,181 @@
+services:
+  # Base de données Inventory
+  inventory-db:
+    build:
+      context: ./dockerfiles/inventory-db
+      dockerfile: Dockerfile
+    container_name: inventory-db
+    environment:
+      POSTGRES_DB: ${INVENTORY_DB_NAME}
+      POSTGRES_USER: ${INVENTORY_DB_USER}
+      POSTGRES_PASSWORD: ${INVENTORY_DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - inventory-database:/var/lib/postgresql/data
+    networks:
+      - crud-network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${INVENTORY_DB_USER} -d ${INVENTORY_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Base de données Billing
+  billing-db:
+    build:
+      context: ./dockerfiles/billing-db
+      dockerfile: Dockerfile
+    container_name: billing-db
+    environment:
+      POSTGRES_DB: ${BILLING_DB_NAME}
+      POSTGRES_USER: ${BILLING_DB_USER}
+      POSTGRES_PASSWORD: ${BILLING_DB_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - billing-database:/var/lib/postgresql/data
+    networks:
+      - crud-network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${BILLING_DB_USER} -d ${BILLING_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ Queue
+  rabbit-queue:
+    build:
+      context: ./dockerfiles/rabbitmq
+      dockerfile: Dockerfile
+    container_name: rabbit-queue
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - crud-network
+    restart: on-failure
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
+  # Application Inventory
+  inventory-app:
+    build:
+      context: ./srcs/inventory-app
+      dockerfile: Dockerfile
+    container_name: inventory-app
+    environment:
+      NODE_ENV: production
+      INVENTORY_PORT: 8080
+      INVENTORY_DB_HOST: inventory-db
+      INVENTORY_DB_PORT: 5432
+      INVENTORY_DB_NAME: ${INVENTORY_DB_NAME}
+      INVENTORY_DB_USER: ${INVENTORY_DB_USER}
+      INVENTORY_DB_PASSWORD: ${INVENTORY_DB_PASSWORD}
+    ports:
+      - "8080:8080"
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+    networks:
+      - crud-network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Application Billing
+  billing-app:
+    build:
+      context: ./srcs/billing-app
+      dockerfile: Dockerfile
+    container_name: billing-app
+    environment:
+      NODE_ENV: production
+      BILLING_PORT: 8080
+      BILLING_DB_HOST: billing-db
+      BILLING_DB_PORT: 5432
+      BILLING_DB_NAME: ${BILLING_DB_NAME}
+      BILLING_DB_USER: ${BILLING_DB_USER}
+      BILLING_DB_PASSWORD: ${BILLING_DB_PASSWORD}
+      RABBITMQ_HOST: rabbit-queue
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
+    ports:
+      - "8081:8080"
+    depends_on:
+      billing-db:
+        condition: service_healthy
+      rabbit-queue:
+        condition: service_healthy
+    networks:
+      - crud-network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API Gateway
+  api-gateway-app:
+    build:
+      context: ./srcs/api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway-app
+    environment:
+      NODE_ENV: production
+      GATEWAY_PORT: 3000
+      INVENTORY_HOST: inventory-app
+      INVENTORY_PORT: 8080
+      BILLING_HOST: billing-app
+      BILLING_PORT: 8080
+      RABBITMQ_HOST: rabbit-queue
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
+    ports:
+      - "3000:3000"
+    volumes:
+      - api-gateway-app:/app/logs
+    depends_on:
+      inventory-app:
+        condition: service_healthy
+      billing-app:
+        condition: service_healthy
+      rabbit-queue:
+        condition: service_healthy
+    networks:
+      - crud-network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  inventory-database:
+    name: inventory-database
+  billing-database:
+    name: billing-database
+  api-gateway-app:
+    name: api-gateway-app
+
+networks:
+  crud-network:
+    name: crud-network
+    driver: bridge

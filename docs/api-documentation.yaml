@@ -1,0 +1,449 @@
+openapi: 3.0.3
+info:
+  title: CRUD Master - API Gateway
+  description: |
+    API Gateway pour la plateforme de streaming de films avec architecture microservices.
+    
+    Cette API sert de point d'entrée unique pour accéder aux services d'inventaire des films 
+    et de facturation via RabbitMQ.
+    
+    ## Architecture
+    - **Gateway**: Routage et orchestration des requêtes
+    - **Inventory Service**: Gestion CRUD des films (PostgreSQL)
+    - **Billing Service**: Traitement des commandes via RabbitMQ (PostgreSQL)
+    
+    ## Authentification
+    Actuellement, aucune authentification n'est requise. En production, 
+    un système JWT serait implémenté.
+  version: 1.0.0
+  contact:
+    name: Support API
+    email: support@crudmaster.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://192.168.56.10:3000
+    description: Serveur de développement (VM Gateway)
+  - url: http://localhost:3000
+    description: Serveur local
+
+tags:
+  - name: health
+    description: Endpoints de monitoring et santé
+  - name: movies
+    description: Gestion des films (proxy vers Inventory API)
+  - name: billing
+    description: Traitement des commandes (via RabbitMQ)
+  - name: gateway
+    description: Informations sur la passerelle
+
+paths:
+  /health:
+    get:
+      tags:
+        - health
+      summary: Health check de la passerelle
+      description: Vérifie l'état de santé de l'API Gateway
+      operationId: getHealth
+      responses:
+        '200':
+          description: Gateway opérationnelle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Gateway non disponible
+
+  /api/info:
+    get:
+      tags:
+        - gateway
+      summary: Informations sur la passerelle
+      description: Retourne des informations détaillées sur l'API Gateway
+      operationId: getGatewayInfo
+      responses:
+        '200':
+          description: Informations de la gateway
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayInfo'
+
+  /api/movies:
+    get:
+      tags:
+        - movies
+      summary: Récupérer tous les films
+      description: |
+        Récupère la liste de tous les films disponibles dans l'inventaire.
+        Supporte la recherche par titre via le paramètre `title`.
+      operationId: getAllMovies
+      parameters:
+        - name: title
+          in: query
+          description: Recherche par titre de film (partielle, insensible à la casse)
+          required: false
+          schema:
+            type: string
+            example: "inception"
+      responses:
+        '200':
+          description: Liste des films récupérée avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoviesResponse'
+        '503':
+          description: Service d'inventaire non disponible
+
+    post:
+      tags:
+        - movies
+      summary: Créer un nouveau film
+      description: Ajoute un nouveau film à l'inventaire
+      operationId: createMovie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MovieInput'
+      responses:
+        '201':
+          description: Film créé avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MovieResponse'
+        '400':
+          description: Données invalides
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service d'inventaire non disponible
+
+    delete:
+      tags:
+        - movies
+      summary: Supprimer tous les films
+      description: ⚠️ Supprime TOUS les films de l'inventaire
+      operationId: deleteAllMovies
+      responses:
+        '200':
+          description: Tous les films supprimés
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '503':
+          description: Service d'inventaire non disponible
+
+  /api/movies/{id}:
+    get:
+      tags:
+        - movies
+      summary: Récupérer un film par ID
+      description: Récupère les détails d'un film spécifique
+      operationId: getMovieById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID unique du film
+          schema:
+            type: integer
+            format: int64
+            example: 1
+      responses:
+        '200':
+          description: Film trouvé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MovieResponse'
+        '404':
+          description: Film non trouvé
+        '503':
+          description: Service d'inventaire non disponible
+
+    put:
+      tags:
+        - movies
+      summary: Mettre à jour un film
+      description: Met à jour les informations d'un film existant
+      operationId: updateMovie
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID unique du film à modifier
+          schema:
+            type: integer
+            format: int64
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MovieInput'
+      responses:
+        '200':
+          description: Film mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MovieResponse'
+        '400':
+          description: Données invalides
+        '404':
+          description: Film non trouvé
+        '503':
+          description: Service d'inventaire non disponible
+
+    delete:
+      tags:
+        - movies
+      summary: Supprimer un film
+      description: Supprime un film spécifique de l'inventaire
+      operationId: deleteMovie
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID unique du film à supprimer
+          schema:
+            type: integer
+            format: int64
+            example: 1
+      responses:
+        '200':
+          description: Film supprimé avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          description: Film non trouvé
+        '503':
+          description: Service d'inventaire non disponible
+
+  /api/billing:
+    post:
+      tags:
+        - billing
+      summary: Traiter une commande
+      description: |
+        Envoie une commande de facturation via RabbitMQ pour traitement asynchrone.
+        
+        La commande est mise en queue et sera traitée par le service de facturation
+        dès qu'il sera disponible. La réponse immédiate indique seulement que
+        la commande a été reçue et mise en queue.
+      operationId: processOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderInput'
+      responses:
+        '200':
+          description: Commande reçue et mise en queue pour traitement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingResponse'
+        '400':
+          description: Données de commande invalides
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service de messaging non disponible
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "OK"
+        service:
+          type: string
+          example: "API Gateway"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00.000Z"
+        uptime:
+          type: number
+          description: Temps de fonctionnement en secondes
+          example: 3600.5
+
+    GatewayInfo:
+      type: object
+      properties:
+        service:
+          type: string
+          example: "API Gateway"
+        version:
+          type: string
+          example: "1.0.0"
+        endpoints:
+          type: object
+          properties:
+            inventory:
+              type: string
+              example: "/api/movies"
+            billing:
+              type: string
+              example: "/api/billing"
+            health:
+              type: string
+              example: "/health"
+        timestamp:
+          type: string
+          format: date-time
+
+    Movie:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: ID unique du film
+          example: 1
+        title:
+          type: string
+          description: Titre du film
+          example: "Inception"
+        description:
+          type: string
+          description: Description du film
+          example: "A mind-bending thriller about dreams within dreams"
+        created_at:
+          type: string
+          format: date-time
+          description: Date de création
+        updated_at:
+          type: string
+          format: date-time
+          description: Date de dernière modification
+
+    MovieInput:
+      type: object
+      required:
+        - title
+        - description
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Titre du film
+          example: "Inception"
+        description:
+          type: string
+          minLength: 1
+          description: Description du film
+          example: "A mind-bending thriller about dreams within dreams"
+
+    MovieResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Film créé avec succès"
+        data:
+          $ref: '#/components/schemas/Movie'
+
+    MoviesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        count:
+          type: integer
+          description: Nombre de films retournés
+          example: 2
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Movie'
+
+    OrderInput:
+      type: object
+      required:
+        - user_id
+        - number_of_items
+        - total_amount
+      properties:
+        user_id:
+          type: string
+          description: ID unique de l'utilisateur
+          example: "42"
+        number_of_items:
+          type: string
+          description: Nombre d'articles dans la commande
+          example: "3"
+        total_amount:
+          type: string
+          description: Montant total de la commande
+          example: "99.99"
+      example:
+        user_id: "42"
+        number_of_items: "3"
+        total_amount: "99.99"
+
+    BillingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Commande reçue et envoyée pour traitement"
+        data:
+          $ref: '#/components/schemas/OrderInput'
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Opération réalisée avec succès"
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Bad Request"
+        message:
+          type: string
+          example: "Les champs title et description sont requis"
+
+  securitySchemes:
+    # Futur: JWT Authentication
+    # bearerAuth:
+    #   type: http
+    #   scheme: bearer
+    #   bearerFormat: JWT
