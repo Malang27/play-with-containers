@@ -4,6 +4,7 @@ services:
     build:
       context: ./dockerfiles/inventory-db
       dockerfile: Dockerfile
+    image: inventory-db  # Nom court pour l'image
     container_name: inventory-db
     environment:
       POSTGRES_DB: ${INVENTORY_DB_NAME}
@@ -27,6 +28,7 @@ services:
     build:
       context: ./dockerfiles/billing-db
       dockerfile: Dockerfile
+    image: billing-db  # Nom court pour l'image
     container_name: billing-db
     environment:
       POSTGRES_DB: ${BILLING_DB_NAME}
@@ -50,13 +52,14 @@ services:
     build:
       context: ./dockerfiles/rabbitmq
       dockerfile: Dockerfile
+    image: rabbit-queue  # Nom court pour l'image
     container_name: rabbit-queue
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "5673:5672"
+      - "15673:15672"
     networks:
       - crud-network
     restart: on-failure
@@ -71,6 +74,7 @@ services:
     build:
       context: ./srcs/inventory-app
       dockerfile: Dockerfile
+    image: inventory-app  # Nom court pour l'image
     container_name: inventory-app
     environment:
       NODE_ENV: production
@@ -99,6 +103,7 @@ services:
     build:
       context: ./srcs/billing-app
       dockerfile: Dockerfile
+    image: billing-app  # Nom court pour l'image
     container_name: billing-app
     environment:
       NODE_ENV: production
@@ -134,6 +139,7 @@ services:
     build:
       context: ./srcs/api-gateway
       dockerfile: Dockerfile
+    image: api-gateway-app  # Nom court pour l'image
     container_name: api-gateway-app
     environment:
       NODE_ENV: production
