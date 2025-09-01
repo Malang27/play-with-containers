@@ -83,3 +83,5 @@ ehthumbs.db
 
 # Linux
 *~
+
+.env
