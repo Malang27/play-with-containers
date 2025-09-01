@@ -84,4 +84,4 @@ ehthumbs.db
 # Linux
 *~
 
-.env
+/.env
